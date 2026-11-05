@@ -1,6 +1,6 @@
-from graph import Graph
-from models import Zone, ZoneType
-from pathfinding import dijkstra
+from models.graph import Graph
+from models.zones_and_connections import Zone, ZoneType
+from algorithms.dijkstra import dijkstra
 
 
 def main() -> None:
