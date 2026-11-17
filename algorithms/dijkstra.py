@@ -1,5 +1,4 @@
-from models.graph import Graph
-from models.zones_and_connections import ZoneType
+from models import Graph, ZoneType
 
 
 def dijkstra(graph: Graph, start: str, end: str) -> list[str]:
