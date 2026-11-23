@@ -1,211 +1,210 @@
-"""Read the map format used by the supplied Fly-in maps."""
-
-from pathlib import Path
-import re
-
-from models import Graph, Zone
+from models import Zone, Graph, Connection
 
 
-class MapParseError(ValueError):
-    """An invalid or unreadable map, with its source location."""
-
-    def __init__(
-        self, filename: Path, line_number: int | None, reason: str
-    ) -> None:
-        self.filename = filename
-        self.line_number = line_number
-        self.reason = reason
-        location = str(filename)
-        if line_number is not None:
-            location += f":{line_number}"
-        super().__init__(f"{location}: {reason}")
-
-
-def _strip_comment(line: str) -> str:
-    """Remove comments outside attributes; preserve colors such as #00ff00."""
-    in_attributes = False
-    for index, character in enumerate(line):
-        if character == "[":
-            in_attributes = True
-        elif character == "]":
-            in_attributes = False
-        elif character == "#" and not in_attributes:
-            return line[:index].strip()
-    return line.strip()
-
-
-def _parse_integer(value: str, field: str) -> int:
-    if re.fullmatch(r"[+-]?[0-9]+", value) is None:
-        raise ValueError(f"{field} must be an integer, got {value!r}")
-    try:
-        return int(value)
-    except ValueError as error:
-        raise ValueError(
-            f"{field} is too large to read as an integer"
-        ) from error
-
-
-def _validate_name(name: str) -> None:
-    if re.fullmatch(r"[^\s:#\[\]=\-\x00-\x1f\x7f]+", name) is None:
-        raise ValueError(
-            f"invalid zone name {name!r}: expected a token without "
-            "whitespace or format delimiters"
-        )
-
-
-def _parse_attributes(payload: str, allowed: set[str]) -> tuple[str, dict[str, str]]:
-    """Separate a definition from one optional bracketed attribute block."""
-    match = re.fullmatch(r"([^\[\]]*)(?:\[([^\[\]]*)\])?", payload)
-    if match is None:
-        raise ValueError(
-            "malformed attributes: expected one [key=value ...] block"
-        )
-
-    fields = match.group(1).strip()
-    raw_attributes = (match.group(2) or "").strip()
-    attributes: dict[str, str] = {}
-    attribute_pattern = re.compile(
-        r"\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^\s=\[\]]+)"
-    )
-    position = 0
-    while position < len(raw_attributes):
-        attribute = attribute_pattern.match(raw_attributes, position)
-        if attribute is None:
-            raise ValueError("malformed attribute: expected key=value")
-        key, value = attribute.groups()
-        if key not in allowed:
-            raise ValueError(f"unknown attribute {key!r}")
-        if key in attributes:
-            raise ValueError(f"duplicate attribute {key!r}")
-        attributes[key] = value
-        position = attribute.end()
-
-    return fields, attributes
-
-
-def _parse_zone(payload: str) -> Zone:
-    fields, attributes = _parse_attributes(
-        payload, {"zone", "color", "max_drones"}
-    )
-    parts = fields.split()
-    if len(parts) != 3:
-        raise ValueError("expected a zone name and two integer coordinates")
-    name, x, y = parts
-    _validate_name(name)
-    return Zone(
-        name,
-        _parse_integer(x, "x coordinate"),
-        _parse_integer(y, "y coordinate"),
-        zone_type=attributes.get("zone", "normal"),
-        max_drones=_parse_integer(attributes.get("max_drones", "1"), "max_drones"),
-        color=attributes.get("color"),
-    )
-
-
-def _parse_connection(payload: str) -> tuple[str, str, int]:
-    fields, attributes = _parse_attributes(payload, {"max_link_capacity"})
-    parts = fields.split("-")
-    if len(parts) != 2:
-        raise ValueError(
-            "expected a connection in the form origin-destination"
-        )
-    origin, destination = (part.strip() for part in parts)
-    _validate_name(origin)
-    _validate_name(destination)
-    capacity = _parse_integer(
-        attributes.get("max_link_capacity", "1"), "max_link_capacity"
-    )
-    return origin, destination, capacity
-
-
-def parse_map(map_path: str | Path) -> tuple[Graph, int, str, str]:
-    """Return (graph, nb_drones, start, end), or raise MapParseError.
-
-    Definitions may appear in any order. Connections are added after all zones,
-    so forward references work. Model validation remains in Zone and Graph.
-    Disconnected maps and blocked endpoints are loadable; routing decides
-    reachability. Windows metadata files are not accepted as maps.
-    """
-    filename = Path(map_path)
-    if filename.name.casefold().endswith(
-        (":zone.identifier", "\uf03azone.identifier")
-    ):
-        raise MapParseError(
-            filename, None, "Windows metadata is not a map file"
-        )
-    try:
-        text = filename.read_text(encoding="utf-8-sig")
-    except UnicodeDecodeError as error:
-        prefix = error.object[:error.start].replace(b"\r\n", b"\n")
-        line_number = prefix.replace(b"\r", b"\n").count(b"\n") + 1
-        raise MapParseError(
-            filename, line_number, "invalid UTF-8 encoding"
-        ) from error
-    except OSError as error:
-        raise MapParseError(
-            filename, None, f"cannot read map: {error.strerror or error}"
-        ) from error
+def parse_map(filename):
 
     graph = Graph()
-    nb_drones: int | None = None
-    start: str | None = None
-    end: str | None = None
-    connections: list[tuple[int, str, str, int]] = []
-    lines = text.splitlines()
-    for line_number, raw_line in enumerate(lines, start=1):
-        line = _strip_comment(raw_line)
-        if not line:
-            continue
-        try:
-            directive, separator, payload = line.partition(":")
-            if not separator:
-                raise ValueError("expected 'directive: value'")
-            directive = directive.strip()
-            payload = payload.strip()
-            if directive == "nb_drones":
+    nb_drones = None
+    start_name = None
+    end_name = None
+
+    with open(filename, "r") as file:
+        for line in file:
+            line = line.strip()
+
+            if not line or line.startswith("#"):
+                continue
+
+            parts = line.split()
+            instruction = parts[0]
+
+            if nb_drones is None and instruction != "nb_drones:":
+                raise ValueError("First instruction must be nb_drones")
+
+            if instruction == "nb_drones:":
                 if nb_drones is not None:
-                    raise ValueError("duplicate nb_drones definition")
-                nb_drones = _parse_integer(payload, "nb_drones")
+                    raise ValueError("Duplicate nb_drones")
+
+                if len(parts) != 2:
+                    raise ValueError("Invalid nb_drones format")
+
+                try:
+                    nb_drones = int(parts[1])
+                except ValueError:
+                    raise ValueError("nb_drones must be an integer")
+
                 if nb_drones <= 0:
-                    raise ValueError("nb_drones must be a positive integer")
-            elif directive in ("hub", "start_hub", "end_hub"):
-                if directive == "start_hub" and start is not None:
-                    raise ValueError("multiple start_hub definitions")
-                if directive == "end_hub" and end is not None:
-                    raise ValueError("multiple end_hub definitions")
-                zone = _parse_zone(payload)
+                    raise ValueError("nb_drones must be positive")
+
+            elif instruction in ("start_hub:", "hub:", "end_hub:"):
+                if len(parts) < 4:
+                    raise ValueError("Invalid zone format")
+
+                name = parts[1]
+
+                try:
+                    x = int(parts[2])
+                    y = int(parts[3])
+                except ValueError:
+                    raise ValueError(f"Invalid coordinates for zone '{name}'")
+
+                attributes = " ".join(parts[4:])
+
+                if attributes:
+                    if (
+                        not attributes.startswith("[")
+                        or not attributes.endswith("]")
+                    ):
+                        raise ValueError(
+                            f"Invalid attributes for zone '{name}'"
+                        )
+
+                    attributes = attributes[1:-1]
+
+                zone_attributes = {}
+
+                allowed_attributes = {"zone", "color", "max_drones"}
+
+                for attribute in attributes.split():
+                    if attribute.count("=") != 1:
+                        raise ValueError("Invalid attribute format")
+
+                    key, value = attribute.split("=")
+
+                    if not key or not value:
+                        raise ValueError("Empty attribute key or value")
+
+                    if key in zone_attributes:
+                        raise ValueError(f"Duplicate attribute: {key}")
+
+                    zone_attributes[key] = value
+
+                for key in zone_attributes:
+                    if key not in allowed_attributes:
+                        raise ValueError(f"Unknown zone attribute: {key}")
+
+                max_drones = 1
+
+                if instruction in ("start_hub:", "end_hub:"):
+                    max_drones = nb_drones
+
+                if "max_drones" in zone_attributes:
+                    try:
+                        max_drones = int(zone_attributes["max_drones"])
+                    except ValueError:
+                        raise ValueError("max_drones must be an integer")
+
+                    if max_drones <= 0:
+                        raise ValueError("max_drones must be positive")
+
+                if "zone" in zone_attributes:
+                    zone_type = zone_attributes["zone"]
+
+                    allowed_zones = {
+                        "normal",
+                        "restricted",
+                        "priority",
+                        "blocked"
+                    }
+
+                    if zone_type not in allowed_zones:
+                        raise ValueError(f"Invalid zone type: {zone_type}")
+
+                zone_type = zone_attributes.get("zone", "normal")
+                color = zone_attributes.get("color")
+
+                zone = Zone(
+                    name=name,
+                    x=x,
+                    y=y,
+                    zone_type=zone_type,
+                    max_drones=max_drones,
+                    color=color
+                    )
+
                 graph.add_zone(zone)
-                if directive == "start_hub":
-                    start = zone.name
-                elif directive == "end_hub":
-                    end = zone.name
-            elif directive == "connection":
-                origin, destination, capacity = _parse_connection(payload)
-                connections.append((line_number, origin, destination, capacity))
+
+                if instruction == "start_hub:":
+                    if start_name is not None:
+                        raise ValueError("Multiple start_hub zones")
+                    start_name = name
+
+                elif instruction == "end_hub:":
+                    if end_name is not None:
+                        raise ValueError("Multiple end_hub zones")
+                    end_name = name
+
+            elif instruction == "connection:":
+                if len(parts) < 2:
+                    raise ValueError("Invalid connection format")
+
+                endpoints = parts[1].split("-")
+
+                if len(endpoints) != 2:
+                    raise ValueError("Invalid connection endpoints")
+
+                origin, destination = endpoints
+
+                if not origin or not destination:
+                    raise ValueError("Empty connection endpoint")
+
+                if origin not in graph.zones:
+                    raise ValueError(f"Unknown origin zone: {origin}")
+
+                if destination not in graph.zones:
+                    raise ValueError(
+                        f"Unknown destination zone: {destination}")
+
+                if len(parts) > 3:
+                    raise ValueError("Too many connection arguments")
+
+                capacity = 1
+
+                if len(parts) > 2:
+                    attribute = parts[2]
+
+                    if not attribute.startswith("["):
+                        raise ValueError("Invalid connection attributes")
+
+                    if not attribute.endswith("]"):
+                        raise ValueError("Invalid connection attributes")
+
+                    attribute = attribute[1:-1]
+
+                    if attribute.count("=") != 1:
+                        raise ValueError("Invalid connection attribute format")
+
+                    key, value = attribute.split("=")
+
+                    if key != "max_link_capacity":
+                        raise ValueError(
+                            f"Unknown connection attribute: {key}")
+
+                    try:
+                        capacity = int(value)
+                    except ValueError:
+                        raise ValueError("max_link_capacity must be a number")
+
+                    if capacity < 1:
+                        raise ValueError("max_link_capacity must be positive")
+
+                connection = Connection(
+                    origin=graph.zones[origin],
+                    destination=graph.zones[destination],
+                    capacity=capacity
+                    )
+                graph.add_connection(connection)
+
             else:
-                raise ValueError(f"unknown directive {directive!r}")
-        except ValueError as error:
-            raise MapParseError(
-                filename, line_number, str(error)
-            ) from error
+                raise ValueError(f"Unknown instruction: {instruction}")
 
-    if nb_drones is None or start is None or end is None:
-        required = {
-            "nb_drones": nb_drones, "start_hub": start, "end_hub": end,
-        }
-        missing = ", ".join(
-            key for key, value in required.items() if value is None
-        )
-        raise MapParseError(
-            filename, len(lines) + 1, f"missing required definitions: {missing}"
-        )
+    if nb_drones is None:
+        raise ValueError("Missing nb_drones")
 
-    for line_number, origin, destination, capacity in connections:
-        try:
-            graph.add_connection(origin, destination, capacity)
-        except ValueError as error:
-            raise MapParseError(
-                filename, line_number,
-                f"connection {origin}-{destination}: {error}",
-            ) from error
-    return graph, nb_drones, start, end
+    if start_name is None or end_name is None:
+        raise ValueError("There must be start_hub and end_hub")
+
+    return graph, nb_drones, start_name, end_name
+
+
+parse_map("maps/medium/01_dead_end_trap.txt")

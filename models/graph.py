@@ -13,24 +13,28 @@ class Graph:
         self.zones[zone.name] = zone
         self.connections[zone.name] = []
 
-    def add_connection(
-        self, a: str, b: str, capacity: int = 1
-    ) -> None:
+    def add_connection(self, connection: Connection) -> None:
+        a = connection.origin.name
+        b = connection.destination.name
+
         if a not in self.zones or b not in self.zones:
             raise ValueError("Zone does not exist")
 
         if a == b:
             raise ValueError("A zone cannot connect to itself")
 
-        for connection in self.connections[a]:
-            if connection.origin.name == b or connection.destination.name == b:
-                raise ValueError("Connection already exists")
+        if (
+            self.zones[a] is not connection.origin
+            or self.zones[b] is not connection.destination
+        ):
+            raise ValueError("Connection zones do not belong to graph")
 
-        connection = Connection(
-            self.zones[a],
-            self.zones[b],
-            capacity
-        )
+        for existing in self.connections[a]:
+            if (
+                existing.origin.name == b
+                or existing.destination.name == b
+            ):
+                raise ValueError("Connection already exists")
 
         self.connections[a].append(connection)
         self.connections[b].append(connection)
