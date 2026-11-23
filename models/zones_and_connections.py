@@ -18,11 +18,6 @@ class Zone:
         max_drones: int = 1,
         color: str | None = None
     ) -> None:
-        if type(max_drones) is not int or max_drones <= 0:
-            raise ValueError("max_drones must be a positive integer")
-
-        if type(x) is not int or type(y) is not int:
-            raise ValueError("Coordinates must be integers")
 
         self.name = name
         self.x = x
@@ -48,8 +43,6 @@ class Connection:
         destination: Zone,
         capacity: int = 1
     ) -> None:
-        if type(capacity) is not int or capacity <= 0:
-            raise ValueError("Capacity must be a positive integer")
 
         self.origin = origin
         self.destination = destination
