@@ -34,6 +34,7 @@ def simulate_turn(
 
     new_positions = positions.copy()
     link_usage: dict[tuple[str, str], int] = {}
+    origin: str | tuple[str, str]
 
     for drone_id, position in positions.items():
         if isinstance(position, tuple):
@@ -43,7 +44,7 @@ def simulate_turn(
 
             origin, destination = position
 
-            link = tuple(sorted((origin, destination)))
+            link = (min(origin, destination), max(origin, destination))
             link_usage[link] = link_usage.get(link, 0) + 1
 
             new_positions[drone_id] = destination
@@ -79,7 +80,7 @@ def simulate_turn(
         if connection is None:
             raise ValueError("Zones are not connected")
 
-        link = tuple(sorted((origin, destination)))
+        link = (min(origin, destination), max(origin, destination))
         link_usage[link] = link_usage.get(link, 0) + 1
 
         if link_usage[link] > connection.capacity:

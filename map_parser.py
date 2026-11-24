@@ -1,7 +1,8 @@
 from models import Zone, Graph, Connection
+from pathlib import Path
 
 
-def parse_map(filename):
+def parse_map(filename: str | Path) -> tuple[Graph, int, str, str]:
 
     graph = Graph()
     nb_drones = None
@@ -50,7 +51,8 @@ def parse_map(filename):
                         x = int(parts[2])
                         y = int(parts[3])
                     except ValueError:
-                        raise ValueError(f"Invalid coordinates for zone '{name}'")
+                        raise ValueError(
+                            f"Invalid coordinates for zone '{name}'")
 
                     attributes = " ".join(parts[4:])
 
@@ -90,6 +92,7 @@ def parse_map(filename):
                     max_drones = 1
 
                     if instruction in ("start_hub:", "end_hub:"):
+                        assert nb_drones is not None
                         max_drones = nb_drones
 
                     elif "max_drones" in zone_attributes:

@@ -5,7 +5,7 @@ from planning.simulator import simulate_turn
 
 def plan_turn(
     graph: Graph,
-    positions: dict[int, str],
+    positions: dict[int, str | tuple[str, str]],
     route: list[str],
     start: str,
     end: str

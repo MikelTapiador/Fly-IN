@@ -1,4 +1,4 @@
-from models.zones_and_connections import Zone, Connection
+from models.zone_and_connection import Zone, Connection
 
 
 class Graph:
