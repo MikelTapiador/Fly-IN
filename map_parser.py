@@ -3,6 +3,27 @@ from pathlib import Path
 
 
 def parse_map(filename: str | Path) -> tuple[Graph, int, str, str]:
+    """Read and validate a Fly-in map file.
+
+    Skip blank lines and full-line comments. Require a positive drone
+    count as the first directive, one start hub and one end hub, and
+    declare both endpoints before their connection. Set the start and
+    end hub capacities to the drone count.
+
+    Args:
+        filename: Path to the map file.
+
+    Returns:
+        A tuple containing the graph, drone count, start hub name, and
+        end hub name, in that order.
+
+    Raises:
+        ValueError: A directive, its metadata, or the map structure is
+            invalid. Map validation errors include the file name and
+            line number or EOF marker.
+        OSError: The file cannot be opened or read.
+        UnicodeDecodeError: The file cannot be decoded as text.
+    """
 
     graph = Graph()
     nb_drones = None
@@ -222,9 +243,3 @@ def parse_map(filename: str | Path) -> tuple[Graph, int, str, str]:
             )
 
     return graph, nb_drones, start_name, end_name
-
-
-try:
-    parse_map("maps/easy/01_linear_path.txt")
-except ValueError as error:
-    print(f"Map error: {error}")

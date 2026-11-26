@@ -5,6 +5,16 @@ def initialize_positions(
     nb_drones: int,
     start: str
 ) -> dict[int, str]:
+    """Place the fleet in the start zone.
+
+    Args:
+        nb_drones: Number of drones to place.
+        start: Zone name assigned to each drone.
+
+    Returns:
+        Zone names indexed by consecutive drone IDs starting at one.
+        A nonpositive count yields an empty dictionary.
+    """
     return {
         drone_id: start
         for drone_id in range(1, nb_drones + 1)
@@ -14,6 +24,16 @@ def initialize_positions(
 def get_occupancy(
     positions: dict[int, str | tuple[str, str]]
 ) -> dict[str, int]:
+    """Count drones settled in zones.
+
+    Args:
+        positions: Positions by drone ID as zone names or pairs of
+            transit endpoints.
+
+    Returns:
+        Counts indexed by occupied zone name. Drones in transit and
+        unoccupied zones are omitted.
+    """
 
     occupancy: dict[str, int] = {}
 
@@ -31,6 +51,32 @@ def simulate_turn(
     start: str,
     end: str
 ) -> dict[int, str | tuple[str, str]]:
+    """Apply one turn of simultaneous drone movements.
+
+    Complete existing transits automatically and record new entries
+    into restricted zones as endpoint pairs. Drones without a move or
+    active transit stay in place. Link usage includes trips that start
+    or finish in the turn and is shared by both directions. Check
+    zone occupancy after applying all moves, exempting start and end.
+
+    Args:
+        graph: Network defining adjacency, zone types, and capacities.
+        positions: Current positions by drone ID. Transit positions
+            contain the origin and destination zone names.
+        moves: Requested destination zone names by drone ID.
+        start: Name of the start zone.
+        end: Name of the terminal zone. Drones there cannot move out.
+
+    Returns:
+        A new position dictionary with zone names for settled drones
+        and endpoint pairs for drones still in transit.
+
+    Raises:
+        ValueError: A requested move is invalid or exceeds link
+            capacity, or the resulting zone occupancy exceeds capacity.
+        KeyError: A resulting occupied zone other than start or end is
+            missing from the graph's zone registry.
+    """
 
     new_positions = positions.copy()
     link_usage: dict[tuple[str, str], int] = {}
